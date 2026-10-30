@@ -95,15 +95,26 @@
       background: #000;
     }
 
-    /* Zone de cadrage 16:9 ou plein écran */
+    /* Zone de cadrage : 4:3 par défaut pour utiliser 100% du capteur Grand Angle sans effet zoom */
     #stage {
       position: relative;
-      width: 100%;
       height: 100%;
+      aspect-ratio: 4 / 3;
+      max-width: 100%;
       display: flex;
       align-items: center;
       justify-content: center;
       overflow: hidden;
+      background: #000;
+    }
+
+    #stage.mode-16-9 {
+      aspect-ratio: 16 / 9;
+    }
+
+    #stage.mode-full {
+      width: 100%;
+      aspect-ratio: auto;
     }
 
     #video-stream {
@@ -123,13 +134,13 @@
       inset: 0;
       width: 100%;
       height: 100%;
-      object-fit: cover;
+      object-fit: fill;
       pointer-events: none;
       z-index: 10;
       display: none;
     }
 
-    /* Contrôles flottants ( tenant compte de l'encoche iPhone 11 ) */
+    /* Contrôles flottants (tenant compte de l'encoche iPhone 11) */
     .ui-layer {
       position: absolute;
       inset: 0;
@@ -161,6 +172,8 @@
       -webkit-backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 255, 255, 0.2);
       color: #fff;
+      font-size: 0.72rem;
+      font-weight: 800;
       display: flex;
       align-items: center;
       justify-content: center;
@@ -302,7 +315,7 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-       justify-content: center;
+      justify-content: center;
       flex: 1;
       width: 100%;
     }
@@ -497,17 +510,15 @@
           </svg>
         </button>
 
+        <!-- Bouton Ratio / Dézoom (4:3 Grand Angle natif / 16:9 / FULL) -->
+        <button class="icon-btn" id="ratio-btn" title="Changer le format (4:3 sans zoom / 16:9 / Plein écran)">
+          4:3
+        </button>
+
         <!-- Bouton Changement Caméra (Avant / Arrière) -->
         <button class="icon-btn" id="switch-cam-btn" title="Changer de caméra">
           <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24">
             <path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/>
-          </svg>
-        </button>
-
-        <!-- Bouton Plein Écran (Supporté sur Desktop/Android, indicatif sur iOS) -->
-        <button class="icon-btn" id="fullscreen-btn" title="Plein écran">
-          <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
           </svg>
         </button>
       </div>
@@ -561,7 +572,7 @@
       </div>
 
       <div class="form-group">
-        <label for="overlay-file-input">Calque PNG transparent (Recommandé : 1920×1080 ou 1792×828) :</label>
+        <label for="overlay-file-input">Calque PNG transparent :</label>
         <input type="file" id="overlay-file-input" accept="image/png" />
       </div>
 
@@ -569,36 +580,27 @@
         <button class="btn-primary" id="save-admin-btn" style="flex:1;">Enregistrer</button>
         <button class="btn-danger" id="clear-overlay-btn">Supprimer le cadre PNG</button>
       </div>
-
-      <p style="font-size: 0.75rem; color: var(--text-dim); line-height: 1.4;">
-        Astuce iPhone 11 : Dans Safari, appuyez sur le bouton <strong>Partager</strong> puis sur <strong>Sur l'écran d'accueil</strong> pour ouvrir l'application en plein écran intégral sans aucune barre d'adresse.
-      </p>
     </div>
   </div>
 
-  <!-- Canvas caché pour la fusion Haute Définition -->
+  <!-- Canvas caché pour le rendu final haute résolution -->
   <canvas id="capture-canvas"></canvas>
 
   <script>
-    /**
-     * ============================================================================
-     * CONFIGURATION PAR DÉFAUT & ÉTAT DE L'APPLICATION
-     * ============================================================================
-     */
-    // Vous pouvez coller votre URL Google Apps Script directement ici en dur,
-    // ou la renseigner dans le panneau d'administration (roue crantée).
     const DEFAULT_GAS_WEBHOOK_URL = "";
 
     let currentFacingMode = "user"; // "user" (avant) ou "environment" (arrière)
+    let currentAspectMode = "4:3";  // "4:3" (Grand angle natif sans zoom), "16:9", ou "FULL"
     let mediaStream = null;
     let isCapturing = false;
 
     // Références DOM
+    const stageEl = document.getElementById("stage");
     const videoEl = document.getElementById("video-stream");
     const overlayPreviewEl = document.getElementById("overlay-preview");
     const shutterBtn = document.getElementById("shutter-btn");
+    const ratioBtn = document.getElementById("ratio-btn");
     const switchCamBtn = document.getElementById("switch-cam-btn");
-    const fullscreenBtn = document.getElementById("fullscreen-btn");
     const countdownOverlay = document.getElementById("countdown-overlay");
     const countdownText = document.getElementById("countdown-text");
     const flashOverlay = document.getElementById("flash-overlay");
@@ -620,7 +622,7 @@
 
     /**
      * ============================================================================
-     * PERSISTANCE INDEXEDDB POUR LE CALQUE PNG (Pas de limite de 5 Mo sur iOS)
+     * PERSISTANCE INDEXEDDB POUR LE CALQUE PNG
      * ============================================================================
      */
     const DB_NAME = "PhotoboothDB";
@@ -672,7 +674,7 @@
 
     /**
      * ============================================================================
-     * INITIALISATION DE LA CAMÉRA (WebRTC getUserMedia)
+     * INITIALISATION CAMÉRA GRAND ANGLE NATIF 4:3 (Zéro recadrage capteur iOS)
      * ============================================================================
      */
     async function initCamera(facingMode = "user") {
@@ -680,12 +682,14 @@
         mediaStream.getTracks().forEach(track => track.stop());
       }
 
+      // Le ratio 4:3 (1440x1080) active tout le capteur photo de l'iPhone 11 sans le crop vidéo 16:9
       const constraints = {
         audio: false,
         video: {
           facingMode: { ideal: facingMode },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 1440 },
+          height: { ideal: 1080 },
+          aspectRatio: { ideal: 4 / 3 }
         }
       };
 
@@ -693,15 +697,71 @@
         mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         videoEl.srcObject = mediaStream;
 
+        // Force le zoom matériel au minimum (Grand Angle maximal) si supporté
+        const videoTrack = mediaStream.getVideoTracks()[0];
+        if (videoTrack && videoTrack.getCapabilities) {
+          const caps = videoTrack.getCapabilities();
+          if (caps.zoom) {
+            try {
+              await videoTrack.applyConstraints({ advanced: [{ zoom: caps.zoom.min || 1 }] });
+            } catch (_) {}
+          }
+        }
+
         if (facingMode === "environment") {
           videoEl.classList.add("rear-camera");
         } else {
           videoEl.classList.remove("rear-camera");
         }
       } catch (err) {
-        alert("Erreur d'accès à la caméra : Vérifiez que vous êtes bien en HTTPS et que Safari a l'autorisation Caméra.\nDétail : " + err.message);
+        alert("Erreur d'accès à la caméra : " + err.message);
       }
     }
+
+    // Bouton permettant de choisir entre 4:3 (Grand angle total), 16:9 et Plein écran
+    ratioBtn.addEventListener("click", () => {
+      stageEl.classList.remove("mode-16-9", "mode-full");
+      if (currentAspectMode === "4:3") {
+        currentAspectMode = "16:9";
+        stageEl.classList.add("mode-16-9");
+        ratioBtn.textContent = "16:9";
+      } else if (currentAspectMode === "16:9") {
+        currentAspectMode = "FULL";
+        stageEl.classList.add("mode-full");
+        ratioBtn.textContent = "FULL";
+      } else {
+        currentAspectMode = "4:3";
+        ratioBtn.textContent = "4:3";
+      }
+    });
+
+    /**
+     * ============================================================================
+     * TÉLÉCOMMANDE BLUETOOTH (Touches HID / Enter / Space / MediaSession)
+     * ============================================================================
+     */
+    function triggerFromRemote() {
+      if (adminModal.style.display === "flex") return;
+
+      // Si une photo est déjà affichée avec son QR Code, la télécommande relance une nouvelle photo
+      if (resultModal.style.display === "flex") {
+        resultModal.style.display = "none";
+        finalPhotoEl.src = "";
+        setTimeout(() => startPhotoboothSequence(), 250);
+        return;
+      }
+
+      startPhotoboothSequence();
+    }
+
+    window.addEventListener("keydown", (e) => {
+      if (adminModal.style.display === "flex") return;
+      const validKeys = ["Enter", " ", "Spacebar", "AudioVolumeUp", "AudioVolumeDown", "VolumeUp", "VolumeDown", "Camera"];
+      if (validKeys.includes(e.key) || validKeys.includes(e.code) || e.keyCode === 13 || e.keyCode === 32) {
+        e.preventDefault();
+        triggerFromRemote();
+      }
+    });
 
     /**
      * ============================================================================
@@ -716,12 +776,10 @@
       if (isCapturing) return;
       isCapturing = true;
 
-      // 1. Décompte 3, 2, 1, Cheese !
       countdownOverlay.style.display = "flex";
       const steps = ["3", "2", "1", "CHEESE !"];
       for (const step of steps) {
         countdownText.textContent = step;
-        // Force le redémarrage de l'animation CSS
         countdownText.style.animation = "none";
         void countdownText.offsetWidth;
         countdownText.style.animation = "pulseCount 0.9s ease-out";
@@ -729,41 +787,33 @@
       }
       countdownOverlay.style.display = "none";
 
-      // 2. Effet Flash Blanc
       flashOverlay.style.opacity = "1";
       setTimeout(() => {
         flashOverlay.style.opacity = "0";
       }, 150);
 
-      // 3. Rendu et Fusion sur le Canvas
       const base64Image = await composeImageOnCanvas();
 
-      // 4. Affichage immédiat de la modale de résultat
       finalPhotoEl.src = base64Image;
       resultModal.style.display = "flex";
 
-      // 5. Envoi vers Google Drive & Génération du QR Code
       await uploadToGoogleDrive(base64Image);
 
       isCapturing = false;
     }
 
-    /**
-     * Fusionne le flux vidéo (en mode cover centré) et le calque PNG sur le Canvas
-     */
     async function composeImageOnCanvas() {
       const ctx = captureCanvas.getContext("2d");
 
-      // Dimensions de sortie Full HD Paysage (1920x1080)
-      const targetWidth = 1920;
+      // Respecte le format sélectionné (1440x1080 en 4:3 grand angle, ou 1920x1080 en 16:9)
+      const targetWidth = currentAspectMode === "4:3" ? 1440 : 1920;
       const targetHeight = 1080;
       captureCanvas.width = targetWidth;
       captureCanvas.height = targetHeight;
 
-      const vWidth = videoEl.videoWidth || 1920;
+      const vWidth = videoEl.videoWidth || 1440;
       const vHeight = videoEl.videoHeight || 1080;
 
-      // Calcul du recadrage "object-fit: cover" pour éviter toute déformation
       const targetRatio = targetWidth / targetHeight;
       const videoRatio = vWidth / vHeight;
 
@@ -778,7 +828,6 @@
       }
 
       ctx.save();
-      // Si caméra frontale, on applique la symétrie horizontale comme sur l'aperçu
       if (currentFacingMode === "user") {
         ctx.translate(targetWidth, 0);
         ctx.scale(-1, 1);
@@ -791,7 +840,6 @@
       );
       ctx.restore();
 
-      // Superposition du calque PNG s'il est actif
       if (overlayPreviewEl.src && overlayPreviewEl.style.display !== "none") {
         await new Promise((resolve) => {
           const img = new Image();
@@ -805,13 +853,12 @@
         });
       }
 
-      // Export JPEG haute qualité (0.90) pour un upload rapide et léger
       return captureCanvas.toDataURL("image/jpeg", 0.90);
     }
 
     /**
      * ============================================================================
-     * UPLOAD VERS GOOGLE APPS SCRIPT & GÉNÉRATION DU QR CODE
+     * UPLOAD VERS GOOGLE APPS SCRIPT & GÉNÉRATION DU QR CODE (INCHANGÉ)
      * ============================================================================
      */
     async function uploadToGoogleDrive(base64DataUrl) {
@@ -833,7 +880,6 @@
           mimeType: "image/jpeg"
         };
 
-        // Envoi en text/plain pour éviter la requête CORS preflight OPTIONS bloquée par GAS
         const response = await fetch(webhookUrl, {
           method: "POST",
           headers: {
@@ -882,17 +928,6 @@
       initCamera(currentFacingMode);
     });
 
-    fullscreenBtn.addEventListener("click", () => {
-      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-      } else if (document.exitFullscreen && document.fullscreenElement) {
-        document.exitFullscreen();
-      } else {
-        alert("Sur iPhone (iOS Safari) :\nAppuyez sur l'icône 'Partager' de Safari puis choisissez 'Sur l'écran d'accueil' pour bénéficier du mode plein écran intégral.");
-      }
-    });
-
-    // Ouverture / Fermeture Modale Admin
     openAdminBtn.addEventListener("click", () => {
       gasUrlInput.value = localStorage.getItem("photobooth_gas_url") || DEFAULT_GAS_WEBHOOK_URL;
       adminModal.style.display = "flex";
@@ -902,7 +937,6 @@
       adminModal.style.display = "none";
     });
 
-    // Sauvegarde de la configuration Admin
     saveAdminBtn.addEventListener("click", async () => {
       const trimmedUrl = gasUrlInput.value.trim();
       localStorage.setItem("photobooth_gas_url", trimmedUrl);
@@ -923,7 +957,6 @@
       }
     });
 
-    // Suppression du cadre PNG
     clearOverlayBtn.addEventListener("click", async () => {
       await deleteOverlayFromDB();
       overlayPreviewEl.src = "";
@@ -932,7 +965,6 @@
       alert("Le cadre PNG a été retiré.");
     });
 
-    // Chargement Initial au démarrage
     window.addEventListener("DOMContentLoaded", async () => {
       try {
         const savedOverlay = await loadOverlayFromDB();
