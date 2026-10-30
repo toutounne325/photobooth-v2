@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<!--
+  Protection légale pour le trading, propriété exclusive de Pirate Pips ™.
+  AVERTISSEMENT LÉGAL : Le trading d'instruments financiers comporte un niveau de risque élevé et peut ne pas convenir à tous les investisseurs. Les performances passées ne préjugent pas des résultats futurs. Ce code est fourni à titre strictement éducatif et technique et ne constitue en aucun cas un conseil en investissement financier.
+-->
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  
+  <!-- Configuration PWA iOS (Mode Plein Écran sans barres Safari) -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Photobooth">
+  <meta name="theme-color" content="#0a0a0c">
+  
+  <title>Photobooth Pro - iPhone 11 Landscape</title>
+  
+  <!-- Librairie légère QRCode.js via CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <style>
+    :root {
+      --bg-dark: #0a0a0c;
+      --panel-bg: rgba(22, 22, 26, 0.85);
+      --accent: #ff2a85;
+      --accent-hover: #e01b70;
+      --text-light: #ffffff;
+      --text-dim: #a0a0ab;
+      --safe-left: env(safe-area-inset-left, 0px);
+      --safe-right: env(safe-area-inset-right, 0px);
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    html, body {
+      width: 100vw;
+      height: 100dvh;
+      overflow: hidden;
+      background-color: var(--bg-dark);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: var(--text-light);
+    }
+
+    /* Alerte si l'iPhone est tenu en mode Portrait */
+    #orientation-warning {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: var(--bg-dark);
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+    }
+
+    #orientation-warning svg {
+      width: 64px;
+      height: 64px;
+      fill: var(--accent);
+      margin-bottom: 1rem;
+      animation: rotatePhone 2s infinite ease-in-out;
+    }
+
+    @keyframes rotatePhone {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(-90deg); }
+    }
+
+    @media screen and (orientation: portrait) {
+      #orientation-warning {
+        display: flex;
+      }
+    }
+
+    /* Conteneur Principal optimisé 896x414 (19.5:9) */
+    #app-container {
+      position: relative;
+      width: 100vw;
+      height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+
+    /* Zone de cadrage 16:9 ou plein écran */
+    #stage {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    #video-stream {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1); /* Effet miroir par défaut pour caméra avant */
+    }
+
+    #video-stream.rear-camera {
+      transform: scaleX(1);
+    }
+
+    /* Calque PNG transparent superposé en temps réel */
+    #overlay-preview {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      pointer-events: none;
+      z-index: 10;
+      display: none;
+    }
+
+    /* Contrôles flottants ( tenant compte de l'encoche iPhone 11 ) */
+    .ui-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: max(16px, var(--safe-top));
+      padding-bottom: max(16px, var(--safe-bottom));
+      padding-left: max(24px, var(--safe-left));
+      padding-right: max(24px, var(--safe-right));
+    }
+
+    /* Barre latérale gauche : Réglages discrets */
+    .left-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      pointer-events: auto;
+    }
+
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.2s;
+    }
+
+    .icon-btn:active {
+      transform: scale(0.9);
+      background: rgba(255, 42, 133, 0.6);
+    }
+
+    /* Barre latérale droite : Bouton Déclencheur */
+    .right-controls {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: auto;
+    }
+
+    #shutter-btn {
+      width: 78px;
+      height: 78px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.25);
+      border: 4px solid #ffffff;
+      padding: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+      transition: transform 0.15s ease;
+    }
+
+    #shutter-btn:active {
+      transform: scale(0.92);
+    }
+
+    #shutter-inner {
+      width: 100%;
+      height: 100%;
+      border-radius: 50%;
+      background: var(--accent);
+      transition: background 0.2s;
+    }
+
+    /* Décompte Visuel (3, 2, 1, Cheese!) */
+    #countdown-overlay {
+      position: absolute;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.25);
+      pointer-events: none;
+    }
+
+    #countdown-text {
+      font-size: 7rem;
+      font-weight: 900;
+      color: #ffffff;
+      text-shadow: 0 6px 30px rgba(0, 0, 0, 0.8);
+      transform: scale(1);
+      animation: pulseCount 0.9s infinite ease-out;
+    }
+
+    @keyframes pulseCount {
+      0% { transform: scale(0.6); opacity: 0; }
+      40% { transform: scale(1.1); opacity: 1; }
+      100% { transform: scale(1); opacity: 0.9; }
+    }
+
+    /* Effet Flash Blanc */
+    #flash-overlay {
+      position: fixed;
+      inset: 0;
+      background: #ffffff;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.4s ease-out;
+    }
+
+    /* Écran de Résultat Post-Capture */
+    #result-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(10, 10, 12, 0.95);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      display: none;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: max(16px, var(--safe-top));
+      padding-bottom: max(16px, var(--safe-bottom));
+      padding-left: max(24px, var(--safe-left));
+      padding-right: max(24px, var(--safe-right));
+      gap: 20px;
+    }
+
+    .result-photo-wrapper {
+      flex: 1;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    #final-photo {
+      max-width: 100%;
+      max-height: 100%;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0, 0, 0, 0.7);
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      object-fit: contain;
+    }
+
+    .result-sidebar {
+      width: 260px;
+      height: 100%;
+      background: var(--panel-bg);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 16px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      text-align: center;
+    }
+
+    .qr-section {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+       justify-content: center;
+      flex: 1;
+      width: 100%;
+    }
+
+    .qr-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: var(--text-light);
+    }
+
+    #qr-container {
+      width: 150px;
+      height: 150px;
+      background: #ffffff;
+      padding: 10px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    }
+
+    #qr-container img, #qr-container canvas {
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .loader-spinner {
+      width: 38px;
+      height: 38px;
+      border: 4px solid rgba(255, 42, 133, 0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    #upload-status {
+      font-size: 0.78rem;
+      color: var(--text-dim);
+      margin-top: 8px;
+      min-height: 2.2em;
+    }
+
+    .action-buttons {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .btn-primary:active {
+      background: var(--accent-hover);
+    }
+
+    /* Modale d'Administration (Upload PNG & URL Webhook) */
+    #admin-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      background: rgba(0, 0, 0, 0.85);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .admin-card {
+      background: #18181c;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 520px;
+      max-height: 90dvh;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .admin-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding-bottom: 10px;
+    }
+
+    .admin-header h2 {
+      font-size: 1.1rem;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 0.82rem;
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+
+    .form-group input[type="text"],
+    .form-group input[type="file"] {
+      background: #0e0e11;
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px;
+      padding: 10px;
+      color: #fff;
+      font-size: 0.85rem;
+    }
+
+    .admin-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-secondary {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.08);
+      color: #fff;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .btn-danger {
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 70, 70, 0.4);
+      background: rgba(255, 70, 70, 0.15);
+      color: #ff6b6b;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    /* Canvas invisible pour le rendu final haute résolution */
+    #capture-canvas {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Alerte Orientation Portrait -->
+  <div id="orientation-warning">
+    <svg viewBox="0 0 24 24">
+      <path d="M16.48 2.52c3.27 1.55 5.61 4.72 5.97 8.48h1.5C23.44 4.84 18.29 0 12 0l-.66.03 3.81 3.81 1.33-1.32zm-6.25-.77c-.59-.59-1.54-.59-2.12 0L1.75 8.11c-.59.59-.59 1.54 0 2.12l12.02 12.02c.59.59 1.54.59 2.12 0l6.36-6.36c.59-.59.59-1.54 0-2.12L10.23 1.75zm4.6 19.44L2.81 9.17l6.36-6.36 12.02 12.02-6.36 6.36zm-7.31.29C4.25 19.94 1.91 16.76 1.55 13H.05C.56 19.16 5.71 24 12 24l.66-.03-3.81-3.81-1.33 1.32z"/>
+    </svg>
+    <h2>Tournez votre iPhone en mode Paysage</h2>
+    <p style="color: var(--text-dim); margin-top: 8px; font-size: 0.9rem;">
+      Le Photobooth est calibré pour l'écran paysage (19.5:9).
+    </p>
+  </div>
+
+  <!-- Conteneur Principal -->
+  <div id="app-container">
+    <div id="stage">
+      <video id="video-stream" autoplay playsinline muted></video>
+      <img id="overlay-preview" alt="Cadre PNG Superposé" />
+    </div>
+
+    <!-- Interface Utilisateur Superposée -->
+    <div class="ui-layer">
+      <div class="left-controls">
+        <!-- Bouton Admin / Réglages -->
+        <button class="icon-btn" id="open-admin-btn" title="Administration & Cadre PNG">
+          <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.07-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.74,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.07,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.44-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.47-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/>
+          </svg>
+        </button>
+
+        <!-- Bouton Changement Caméra (Avant / Arrière) -->
+        <button class="icon-btn" id="switch-cam-btn" title="Changer de caméra">
+          <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M20 4h-3.17L15 2H9L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-5 11.5V13H9v2.5L5.5 12 9 8.5V11h6V8.5l3.5 3.5-3.5 3.5z"/>
+          </svg>
+        </button>
+
+        <!-- Bouton Plein Écran (Supporté sur Desktop/Android, indicatif sur iOS) -->
+        <button class="icon-btn" id="fullscreen-btn" title="Plein écran">
+          <svg width="22" height="22" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="right-controls">
+        <button id="shutter-btn" aria-label="Prendre une photo">
+          <div id="shutter-inner"></div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Décompte Visuel -->
+    <div id="countdown-overlay">
+      <div id="countdown-text">3</div>
+    </div>
+
+    <!-- Flash Blanc -->
+    <div id="flash-overlay"></div>
+  </div>
+
+  <!-- Écran Résultat & QR Code -->
+  <div id="result-modal">
+    <div class="result-photo-wrapper">
+      <img id="final-photo" alt="Photo Capturée" />
+    </div>
+    <div class="result-sidebar">
+      <div class="qr-section">
+        <div class="qr-title">Scannez pour récupérer</div>
+        <div id="qr-container">
+          <div class="loader-spinner" id="qr-Spinner"></div>
+        </div>
+        <div id="upload-status">Envoi vers Google Drive...</div>
+      </div>
+      <div class="action-buttons">
+        <button class="btn-primary" id="retake-btn">Nouvelle Photo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modale Administration -->
+  <div id="admin-modal">
+    <div class="admin-card">
+      <div class="admin-header">
+        <h2>Configuration du Photobooth</h2>
+        <button class="btn-secondary" id="close-admin-btn">Fermer</button>
+      </div>
+
+      <div class="form-group">
+        <label for="gas-url-input">URL du Webhook Google Apps Script (Web App) :</label>
+        <input type="text" id="gas-url-input" placeholder="https://script.google.com/macros/s/.../exec" />
+      </div>
+
+      <div class="form-group">
+        <label for="overlay-file-input">Calque PNG transparent (Recommandé : 1920×1080 ou 1792×828) :</label>
+        <input type="file" id="overlay-file-input" accept="image/png" />
+      </div>
+
+      <div class="admin-row">
+        <button class="btn-primary" id="save-admin-btn" style="flex:1;">Enregistrer</button>
+        <button class="btn-danger" id="clear-overlay-btn">Supprimer le cadre PNG</button>
+      </div>
+
+      <p style="font-size: 0.75rem; color: var(--text-dim); line-height: 1.4;">
+        Astuce iPhone 11 : Dans Safari, appuyez sur le bouton <strong>Partager</strong> puis sur <strong>Sur l'écran d'accueil</strong> pour ouvrir l'application en plein écran intégral sans aucune barre d'adresse.
+      </p>
+    </div>
+  </div>
+
+  <!-- Canvas caché pour la fusion Haute Définition -->
+  <canvas id="capture-canvas"></canvas>
+
+  <script>
+    /**
+     * ============================================================================
+     * CONFIGURATION PAR DÉFAUT & ÉTAT DE L'APPLICATION
+     * ============================================================================
+     */
+    // Vous pouvez coller votre URL Google Apps Script directement ici en dur,
+    // ou la renseigner dans le panneau d'administration (roue crantée).
+    const DEFAULT_GAS_WEBHOOK_URL = "";
+
+    let currentFacingMode = "user"; // "user" (avant) ou "environment" (arrière)
+    let mediaStream = null;
+    let isCapturing = false;
+
+    // Références DOM
+    const videoEl = document.getElementById("video-stream");
+    const overlayPreviewEl = document.getElementById("overlay-preview");
+    const shutterBtn = document.getElementById("shutter-btn");
+    const switchCamBtn = document.getElementById("switch-cam-btn");
+    const fullscreenBtn = document.getElementById("fullscreen-btn");
+    const countdownOverlay = document.getElementById("countdown-overlay");
+    const countdownText = document.getElementById("countdown-text");
+    const flashOverlay = document.getElementById("flash-overlay");
+    const captureCanvas = document.getElementById("capture-canvas");
+
+    const resultModal = document.getElementById("result-modal");
+    const finalPhotoEl = document.getElementById("final-photo");
+    const qrContainer = document.getElementById("qr-container");
+    const uploadStatusEl = document.getElementById("upload-status");
+    const retakeBtn = document.getElementById("retake-btn");
+
+    const adminModal = document.getElementById("admin-modal");
+    const openAdminBtn = document.getElementById("open-admin-btn");
+    const closeAdminBtn = document.getElementById("close-admin-btn");
+    const gasUrlInput = document.getElementById("gas-url-input");
+    const overlayFileInput = document.getElementById("overlay-file-input");
+    const saveAdminBtn = document.getElementById("save-admin-btn");
+    const clearOverlayBtn = document.getElementById("clear-overlay-btn");
+
+    /**
+     * ============================================================================
+     * PERSISTANCE INDEXEDDB POUR LE CALQUE PNG (Pas de limite de 5 Mo sur iOS)
+     * ============================================================================
+     */
+    const DB_NAME = "PhotoboothDB";
+    const STORE_NAME = "SettingsStore";
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open(DB_NAME, 1);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME);
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    }
+
+    async function saveOverlayToDB(dataUrl) {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).put(dataUrl, "overlayPng");
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    async function loadOverlayFromDB() {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readonly");
+        const req = tx.objectStore(STORE_NAME).get("overlayPng");
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    async function deleteOverlayFromDB() {
+      const db = await openDB();
+      return new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE_NAME, "readwrite");
+        tx.objectStore(STORE_NAME).delete("overlayPng");
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    }
+
+    /**
+     * ============================================================================
+     * INITIALISATION DE LA CAMÉRA (WebRTC getUserMedia)
+     * ============================================================================
+     */
+    async function initCamera(facingMode = "user") {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+      }
+
+      const constraints = {
+        audio: false,
+        video: {
+          facingMode: { ideal: facingMode },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      };
+
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        videoEl.srcObject = mediaStream;
+
+        if (facingMode === "environment") {
+          videoEl.classList.add("rear-camera");
+        } else {
+          videoEl.classList.remove("rear-camera");
+        }
+      } catch (err) {
+        alert("Erreur d'accès à la caméra : Vérifiez que vous êtes bien en HTTPS et que Safari a l'autorisation Caméra.\nDétail : " + err.message);
+      }
+    }
+
+    /**
+     * ============================================================================
+     * DÉCOMPTE VISUEL & CAPTURE PHOTO HAUTE RÉSOLUTION
+     * ============================================================================
+     */
+    function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    async function startPhotoboothSequence() {
+      if (isCapturing) return;
+      isCapturing = true;
+
+      // 1. Décompte 3, 2, 1, Cheese !
+      countdownOverlay.style.display = "flex";
+      const steps = ["3", "2", "1", "CHEESE !"];
+      for (const step of steps) {
+        countdownText.textContent = step;
+        // Force le redémarrage de l'animation CSS
+        countdownText.style.animation = "none";
+        void countdownText.offsetWidth;
+        countdownText.style.animation = "pulseCount 0.9s ease-out";
+        await sleep(900);
+      }
+      countdownOverlay.style.display = "none";
+
+      // 2. Effet Flash Blanc
+      flashOverlay.style.opacity = "1";
+      setTimeout(() => {
+        flashOverlay.style.opacity = "0";
+      }, 150);
+
+      // 3. Rendu et Fusion sur le Canvas
+      const base64Image = await composeImageOnCanvas();
+
+      // 4. Affichage immédiat de la modale de résultat
+      finalPhotoEl.src = base64Image;
+      resultModal.style.display = "flex";
+
+      // 5. Envoi vers Google Drive & Génération du QR Code
+      await uploadToGoogleDrive(base64Image);
+
+      isCapturing = false;
+    }
+
+    /**
+     * Fusionne le flux vidéo (en mode cover centré) et le calque PNG sur le Canvas
+     */
+    async function composeImageOnCanvas() {
+      const ctx = captureCanvas.getContext("2d");
+
+      // Dimensions de sortie Full HD Paysage (1920x1080)
+      const targetWidth = 1920;
+      const targetHeight = 1080;
+      captureCanvas.width = targetWidth;
+      captureCanvas.height = targetHeight;
+
+      const vWidth = videoEl.videoWidth || 1920;
+      const vHeight = videoEl.videoHeight || 1080;
+
+      // Calcul du recadrage "object-fit: cover" pour éviter toute déformation
+      const targetRatio = targetWidth / targetHeight;
+      const videoRatio = vWidth / vHeight;
+
+      let sx = 0, sy = 0, sWidth = vWidth, sHeight = vHeight;
+
+      if (videoRatio > targetRatio) {
+        sWidth = vHeight * targetRatio;
+        sx = (vWidth - sWidth) / 2;
+      } else {
+        sHeight = vWidth / targetRatio;
+        sy = (vHeight - sHeight) / 2;
+      }
+
+      ctx.save();
+      // Si caméra frontale, on applique la symétrie horizontale comme sur l'aperçu
+      if (currentFacingMode === "user") {
+        ctx.translate(targetWidth, 0);
+        ctx.scale(-1, 1);
+      }
+
+      ctx.drawImage(
+        videoEl,
+        sx, sy, sWidth, sHeight,
+        0, 0, targetWidth, targetHeight
+      );
+      ctx.restore();
+
+      // Superposition du calque PNG s'il est actif
+      if (overlayPreviewEl.src && overlayPreviewEl.style.display !== "none") {
+        await new Promise((resolve) => {
+          const img = new Image();
+          img.crossOrigin = "anonymous";
+          img.onload = () => {
+            ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = overlayPreviewEl.src;
+        });
+      }
+
+      // Export JPEG haute qualité (0.90) pour un upload rapide et léger
+      return captureCanvas.toDataURL("image/jpeg", 0.90);
+    }
+
+    /**
+     * ============================================================================
+     * UPLOAD VERS GOOGLE APPS SCRIPT & GÉNÉRATION DU QR CODE
+     * ============================================================================
+     */
+    async function uploadToGoogleDrive(base64DataUrl) {
+      qrContainer.innerHTML = '<div class="loader-spinner"></div>';
+      uploadStatusEl.textContent = "Sauvegarde sur Google Drive...";
+
+      const webhookUrl = localStorage.getItem("photobooth_gas_url") || DEFAULT_GAS_WEBHOOK_URL;
+
+      if (!webhookUrl) {
+        qrContainer.innerHTML = '<span style="color:#ff4b4b; font-size:0.75rem; font-weight:700;">URL Webhook manquante</span>';
+        uploadStatusEl.textContent = "Configurez l'URL Google Apps Script via la roue crantée.";
+        return;
+      }
+
+      try {
+        const payload = {
+          image: base64DataUrl,
+          filename: `Photobooth_${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`,
+          mimeType: "image/jpeg"
+        };
+
+        // Envoi en text/plain pour éviter la requête CORS preflight OPTIONS bloquée par GAS
+        const response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "text/plain;charset=utf-8"
+          },
+          body: JSON.stringify(payload)
+        });
+
+        const result = await response.json();
+
+        if (result.status === "success" && result.downloadUrl) {
+          qrContainer.innerHTML = "";
+          new QRCode(qrContainer, {
+            text: result.downloadUrl,
+            width: 130,
+            height: 130,
+            colorDark: "#000000",
+            colorLight: "#ffffff",
+            correctLevel: QRCode.CorrectLevel.M
+          });
+          uploadStatusEl.textContent = "Scannez avec l'appareil photo de votre téléphone !";
+        } else {
+          throw new Error(result.message || "Réponse invalide du serveur");
+        }
+      } catch (err) {
+        console.error("Erreur Upload Drive:", err);
+        qrContainer.innerHTML = '<span style="color:#ff4b4b; font-size:0.75rem;">Erreur Réseau</span>';
+        uploadStatusEl.textContent = "Échec de l'envoi : " + err.message;
+      }
+    }
+
+    /**
+     * ============================================================================
+     * GESTION DES ÉVÉNEMENTS & ADMINISTRATION
+     * ============================================================================
+     */
+    shutterBtn.addEventListener("click", startPhotoboothSequence);
+
+    retakeBtn.addEventListener("click", () => {
+      resultModal.style.display = "none";
+      finalPhotoEl.src = "";
+    });
+
+    switchCamBtn.addEventListener("click", () => {
+      currentFacingMode = currentFacingMode === "user" ? "environment" : "user";
+      initCamera(currentFacingMode);
+    });
+
+    fullscreenBtn.addEventListener("click", () => {
+      if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else if (document.exitFullscreen && document.fullscreenElement) {
+        document.exitFullscreen();
+      } else {
+        alert("Sur iPhone (iOS Safari) :\nAppuyez sur l'icône 'Partager' de Safari puis choisissez 'Sur l'écran d'accueil' pour bénéficier du mode plein écran intégral.");
+      }
+    });
+
+    // Ouverture / Fermeture Modale Admin
+    openAdminBtn.addEventListener("click", () => {
+      gasUrlInput.value = localStorage.getItem("photobooth_gas_url") || DEFAULT_GAS_WEBHOOK_URL;
+      adminModal.style.display = "flex";
+    });
+
+    closeAdminBtn.addEventListener("click", () => {
+      adminModal.style.display = "none";
+    });
+
+    // Sauvegarde de la configuration Admin
+    saveAdminBtn.addEventListener("click", async () => {
+      const trimmedUrl = gasUrlInput.value.trim();
+      localStorage.setItem("photobooth_gas_url", trimmedUrl);
+
+      const file = overlayFileInput.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const dataUrl = e.target.result;
+          await saveOverlayToDB(dataUrl);
+          overlayPreviewEl.src = dataUrl;
+          overlayPreviewEl.style.display = "block";
+          adminModal.style.display = "none";
+        };
+        reader.readAsDataURL(file);
+      } else {
+        adminModal.style.display = "none";
+      }
+    });
+
+    // Suppression du cadre PNG
+    clearOverlayBtn.addEventListener("click", async () => {
+      await deleteOverlayFromDB();
+      overlayPreviewEl.src = "";
+      overlayPreviewEl.style.display = "none";
+      overlayFileInput.value = "";
+      alert("Le cadre PNG a été retiré.");
+    });
+
+    // Chargement Initial au démarrage
+    window.addEventListener("DOMContentLoaded", async () => {
+      try {
+        const savedOverlay = await loadOverlayFromDB();
+        if (savedOverlay) {
+          overlayPreviewEl.src = savedOverlay;
+          overlayPreviewEl.style.display = "block";
+        }
+      } catch (e) {
+        console.warn("Impossible de charger le calque depuis IndexedDB:", e);
+      }
+
+      await initCamera(currentFacingMode);
+    });
+  </script>
+</body>
+</html>
